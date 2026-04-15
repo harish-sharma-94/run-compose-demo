@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Chat Bot</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background-color: #f0f0f0;
+      margin: 0;
+    }
+
+    .main-container {
+      display: flex;
+      width: 90%;
+      max-width: 1200px;
+      height: 90vh;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #chat-area {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      border-right: 1px solid #ccc;
+      min-width: 0;
+    }
+
+    #side-panel {
+      width: 300px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chat-window {
+      flex-grow: 1;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      max-height: calc(100% - 60px);
+    }
+
+    .message {
+      margin-bottom: 10px;
+      padding: 5px 10px;
+      border-radius: 5px;
+    }
+
+    .user-message {
+      background-color: #dcf8c6;
+      align-self: flex-end;
+    }
+
+    .bot-message {
+      background-color: #f1f0f0;
+      align-self: flex-start;
+    }
+
+    #chat-form {
+      display: flex;
+    }
+
+    #chat-input {
+      flex-grow: 1;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    #send-btn {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+
+    #controls button,
+    #payload-container button {
+      background-color: #008CBA;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-top: 10px;
+    }
+
+    #controls button:hover,
+    #payload-container button:hover {
+      opacity: 0.9;
+    }
+
+    #model-info button,
+    #user-info button {
+      margin-top: 5px;
+      width: auto;
+    }
+
+    #payload-container button {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    #controls {
+      margin-bottom: 20px;
+    }
+
+    #controls div {
+      margin-bottom: 10px;
+    }
+
+    #controls input,
+    #controls button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      box-sizing: border-box;
+    }
+
+    #logs {
+      flex-grow: 1;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      font-size: 0.9em;
+      background-color: #f9f9f9;
+    }
+
+    #payload-container {
+      margin-top: 10px;
+    }
+
+    #payload-display {
+      display: none;
+      border: 1px solid #ccc;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      background-color: #f9f9f9;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="main-container">
+    <div id="chat-area">
+      <div id="chat-window"></div>
+      <div id="payload-container">
+        <button id="toggle-payload-btn">Show/Hide Latest Payload</button>
+        <pre id="payload-display"></pre>
+      </div>
+      <form id="chat-form">
+        <input type="text" id="chat-input" placeholder="Type a message...">
+        <button type="submit" id="send-btn">Send</button>
+      </form>
+    </div>
+    <div id="side-panel">
+      <div id="controls">
+        <div id="model-info">
+          <span id="model-name">Model: Not Loaded</span>
+          <button id="load-model-btn">Load Model</button>
+        </div>
+        <div id="user-info">
+          <input type="text" id="username-input" placeholder="Enter your username...">
+          <button id="load-history-btn">Load History</button>
+          <button id="delete-history-btn">Delete History</button>
+          <button id="admin-view-btn">Admin View</button>
+        </div>
+      </div>
+      <h4>Logs</h4>
+      <div id="logs"></div>
+    </div>
+  </div>
+  <script>
+    const chatWindow = document.getElementById('chat-window');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const loadModelBtn = document.getElementById('load-model-btn');
+    const modelName = document.getElementById('model-name');
+    const usernameInput = document.getElementById('username-input');
+    const deleteHistoryBtn = document.getElementById('delete-history-btn');
+    const loadHistoryBtn = document.getElementById('load-history-btn');
+    const adminViewBtn = document.getElementById('admin-view-btn');
+    const logs = document.getElementById('logs');
+    const payloadContainer = document.getElementById('payload-container');
+    const togglePayloadBtn = document.getElementById('toggle-payload-btn');
+    const payloadDisplay = document.getElementById('payload-display');
+
+    function addMessage(message, sender, target = chatWindow) {
+      const messageElement = document.createElement('div');
+      if (target === chatWindow) {
+        messageElement.classList.add('message', sender === 'user' ? 'user-message' : 'bot-message');
+      }
+      const preElement = document.createElement('pre');
+      preElement.textContent = message;
+      messageElement.appendChild(preElement);
+      target.appendChild(messageElement);
+      target.scrollTop = target.scrollHeight;
+    }
+
+    async function checkModelStatus() {
+      let targetModel = '';
+      try {
+        const envResponse = await fetch('/env');
+        const envData = await envResponse.json();
+        if (envResponse.ok) {
+          targetModel = envData.LLM_MODEL;
+        } else {
+          console.error('Could not fetch environment variables.');
+          modelName.textContent = 'Model: Status Unknown';
+          return;
+        }
+
+        const modelsResponse = await fetch('/models');
+        const modelsData = await modelsResponse.json();
+
+        if (modelsResponse.ok) {
+          const loadedModels = modelsData.data || [];
+          const isLoaded = loadedModels.some(model => model.id === targetModel);
+
+          if (loadedModels.length > 0) {
+            modelName.textContent = `Model: ${loadedModels[0].id}`;
+          } else {
+            modelName.textContent = 'Model: Not Loaded';
+          }
+        } else {
+          modelName.textContent = 'Model: Status Check Failed';
+          addMessage(`Error checking model status: ${modelsData.error}`, 'bot', logs);
+        }
+      } catch (error) {
+        console.error('Error checking model status:', error);
+        modelName.textContent = 'Model: Status Check Failed';
+      }
+    }
+
+    async function loadHistory() {
+      const username = usernameInput.value;
+      if (!username) {
+        alert('Please enter a username.');
+        return;
+      }
+      addMessage(`Loading chat history for user: ${username}...`, 'bot', logs);
+      try {
+        const response = await fetch(`/history?username=${username}`);
+        const data = await response.json();
+        if (response.ok) {
+          chatWindow.innerHTML = '';
+          data.history.forEach(item => {
+            addMessage(item.question, 'user');
+            addMessage(item.response, 'bot');
+          });
+          addMessage(`Chat history loaded for user: ${username}`, 'bot', logs);
+        } else {
+          console.error(`Error loading history for user ${username}: ${data.error}`);
+          addMessage(`Error: ${data.error}`, 'bot', logs);
+        }
+      } catch (error) {
+        console.error('Error loading history:', error);
+        addMessage('An error occurred while loading the history.', 'bot', logs);
+      }
+    }
+
+    loadHistoryBtn.addEventListener('click', loadHistory);
+
+    deleteHistoryBtn.addEventListener('click', async () => {
+      const username = usernameInput.value;
+      if (!username) {
+        alert('Please enter a username');
+        return;
+      }
+      try {
+        const response = await fetch('/delete_history', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ username: username })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          chatWindow.innerHTML = '';
+          addMessage(`Chat history deleted for user: ${username}.`, 'bot', logs);
+        } else {
+          addMessage(`Error: ${data.error}`, 'bot', logs);
+        }
+      } catch (error) {
+        console.error(`Error deleting history for user ${username}: ${error}`);
+        addMessage(`An error occurred while deleting the history for user ${username}.`, 'bot', logs);
+      }
+    });
+
+    loadModelBtn.addEventListener('click', async () => {
+      addMessage('Loading model...', 'bot', logs);
+      loadModelBtn.disabled = true;
+      try {
+        const response = await fetch('/load_model_dmr', { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+          addMessage(`Model ${data.model_name} loaded successfully`, 'bot', logs);
+        } else {
+          addMessage(`Error loading model: ${data.error}`, 'bot', logs);
+        }
+      } catch (error) {
+        console.error('Error loading model:', error);
+        addMessage('Error loading model.', 'bot', logs);
+      } finally {
+        await checkModelStatus();
+        loadModelBtn.disabled = false;
+      }
+    });
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const message = chatInput.value;
+      const username = usernameInput.value;
+      if (!message) {
+        return;
+      }
+      if (!username) {
+        alert('Please enter a username.');
+        return;
+      }
+      addMessage(message, 'user');
+      chatInput.value = '';
+
+      try {
+        const response = await fetch('/ask', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ question: message, username: username })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          addMessage(data.response, 'bot');
+          payloadDisplay.textContent = JSON.stringify(data.payload, null, 2);
+        } else {
+          addMessage(`Error: ${data.error}`, 'bot');
+        }
+      } catch (error) {
+        console.error('Error asking question:', error);
+        addMessage('An error occurred while asking the question.', 'bot');
+      }
+    });
+
+    togglePayloadBtn.addEventListener('click', () => {
+      payloadDisplay.style.display = payloadDisplay.style.display === 'none' ? 'block' : 'none';
+    });
+
+    adminViewBtn.addEventListener('click', () => {
+      window.location.href = '/admin';
+    });
+
+    window.addEventListener('DOMContentLoaded', checkModelStatus);
+  </script>
+</body>
+
+</html>

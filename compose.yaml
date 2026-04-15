@@ -1,0 +1,28 @@
+name: ai-model-test
+services:
+  web:
+    build:
+      context: web
+    stop_signal: SIGINT
+    ports:
+    - '8080:8080'
+    volumes:
+    - chat-history:/data
+    models:
+    - llm
+    secrets:
+    - admin_password
+models:
+  llm:
+    model: ai/smollm2
+    x-google-cloudrun:
+      environment:
+        PORT: 12345
+        MODEL_RUNNER_PORT: 12345
+      run-model:
+        inference-container: docker/model-runner
+volumes:
+  chat-history:
+secrets:
+  admin_password:
+    file: ./admin_password.txt
